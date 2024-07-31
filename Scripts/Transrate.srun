@@ -1,0 +1,21 @@
+# Here is the code to run transrate with singularity
+
+#SBATCH --job-name=Transrate_Singularity
+#SBATCH --nodes=1
+#SATTCH --tasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=5GB
+#SBATCH --time=00:30:00
+
+module purge
+
+# *Assemblies_Directory* is the path to the directory with the assembly
+
+cd *Assemblies_Directory*
+
+# *SIF_Path* is the path to where your transrate singularity image is
+# *Assembly* is your assembly file
+# *Out* is where you would like your output to go
+
+singularity exec *SIF_Path*/transrate_1.0.3.sif transrate --assembly *Assembly* \
+--threads 16 --output *Out*

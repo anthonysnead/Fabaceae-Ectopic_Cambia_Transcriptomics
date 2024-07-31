@@ -1,0 +1,28 @@
+# This is the script to run TransPi. Here we skip the quality check because we did it prior. We also got the kmer range from Kmergenie prior.
+#Importantly, you will need to install TransPi following the user manual (https://palmuc.github.io/TransPi/) which will give you a directory for your nextflow config file and databases along with another directory for TransPi itself. 
+#You may need to edit your configuration file to reflect your specific system limitation (cpus, RAM, Time, ect.). 
+
+#SBATCH --job-name=TransPiSingularity
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=10GB
+#SBATCH --time=5-00:00:00
+
+module purge
+module load jdk/11.0.9
+module load singularity/3.7.4
+
+# *TransPi_Directory* stands for the path where you installed your databases and have your config file.
+
+cd *TransPi_Directory*
+
+# *TransPi_Install_Path* is where you isntalled TransPi
+# *Reads* is where you have your trimmed reads. You must first concatentate all your reads for each species before running the pipeline because it creates a transcriptome for every file
+# *Out_Path* is where you want your files to be written
+
+./nextflow run *TransPi_Install_Path*/TransPi.nf --all --maxReadLen 150 --k 25,35,45,55,65 --reads '*Reads*/*_R[1,2].fastq.gz' \
+ --outdir *Out_Path* --skipQC --skipFilter -profile singularity,TransPiContainer
+
+# If anything happens to stop the run you can rerun this with the flag --resume to keep going wit hthe same run
+# If an issues happen with containers, you can always edit the run files with new docker links to upgrade the software. 

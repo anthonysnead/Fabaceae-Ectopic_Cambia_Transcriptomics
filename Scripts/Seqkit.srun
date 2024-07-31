@@ -1,0 +1,14 @@
+# Here we use seqkit to get read lengths for every sequence in the transcriptomes
+# Seqkit is in our paths so we do not need to load it, but it can be run with singularity as well.
+
+#!/bin/bash
+#SBATCH --array=1-2
+#SBATCH --time=1-00:00:00
+
+# We have seqkit already in the path of our directory so we can call seqtk without loading a module or a singularity instance.
+
+# Paths is a multicolumn text file with the path to the transcriptome
+
+file=$(sed -n ''$SLURM_ARRAY_TASK_ID'p' Paths | awk '{print$1}')
+
+seqkit fx2tab --length --name --header-line  file

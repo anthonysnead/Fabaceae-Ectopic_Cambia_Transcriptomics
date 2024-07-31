@@ -1,0 +1,14 @@
+# Here we have our orthofinder2 script.
+# All unzipped proteomes should be placed in the same folder.
+
+#!/bin/sh
+
+#SBATCH --cpus-per-task=16
+#SBATCH --time=6:00:00
+#SBATCH --mem=40GB
+
+# *Path* indicates either the path to your sif files or to your proteomes
+
+singularity exec *Path*/orthofinder2.sif \
+orthofinder -f *Path*/Proteomes -t 16
+

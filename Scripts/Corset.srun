@@ -1,0 +1,20 @@
+# Here is an example run of corset. 
+# -g indicates the treatment group for every file
+# -n indicates the name of the sample
+# You should first navigate to the directory with your sorted bam files (Bam_Path)
+#!/bin/bash
+
+#SBATCH --job-name=Corset
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=100GB
+#SBATCH --time=24:00:00
+
+# Bam_Path is a place holder for your path
+cd *Bam_Path*
+
+# *Path* represents the path where you have placed the sif file
+
+# This run is an example for our Phaseolus clustering where the samples were all from the same group.
+
+singularity exec *Path*/corset_1.07.sif \
+corset -g 1,1,1,1,1,1 -n PV2,PV5,PV6,PV7,PV8,PV9 *.bam

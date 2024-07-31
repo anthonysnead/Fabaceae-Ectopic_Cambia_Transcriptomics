@@ -1,0 +1,19 @@
+# Here is the trimming script using trim galore!
+
+
+#!/bin/bash
+#SBATCH --cpus-per-task=1
+#SBATCH --array=1-17
+#SBATCH --time=5:00:00
+#SBATCH --mem=30GB
+
+# Here we have TrimGalore alread in our path, but there are docker images that can be downloade and ran with singularity exec *imag* if needed.
+# Paths is a text file with the sample name and paths to the reads.
+
+File=$(sed -n ''$SLURM_ARRAY_TASK_ID'p' Paths | awk '{print$51}')
+
+read1=$(sed -n ''$SLURM_ARRAY_TASK_ID'p' Paths | awk '{print$2}')
+
+read2=$(sed -n ''$SLURM_ARRAY_TASK_ID'p' Paths | awk '{print$3}')
+
+trim_galore --paired -j 1 -q 20 --stringency 3 --length 50 -o ${Path}/${File}.fastq ${read1} ${read2}

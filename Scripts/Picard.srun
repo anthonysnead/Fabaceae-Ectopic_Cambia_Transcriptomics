@@ -1,0 +1,26 @@
+# Here is the Picard script that fixes the mate information and outputs sorted bam files.
+
+
+#!/bin/bash
+#SBATCH --cpus-per-task=8
+#SBATCH --array=1-17
+#SBATCH --time=5:00:00
+#SBATCH --mem=30GB
+
+# Here we use modules
+
+module load samtools/intel/1.14
+module load picard/2.27.5
+
+# Paths is a text files with relevent information to distribute to each array instance for parrallel processing
+
+file_name=$(sed -n ''$SLURM_ARRAY_TASK_ID'p' Paths | awk '{print$5}')
+
+input_path=$(sed -n ''$SLURM_ARRAY_TASK_ID'p' Paths | awk '{print$4}')
+
+java -jar $PICARD_JAR FixMateInformation INPUT=${input_path}/samfiles/${file_name}.sam \
+OUTPUT=${input_path}/samfiles/${file_name}.fix.sam VALIDATION_STRINGENCY=SILENT
+
+samtools view -@ 8 -b -h ${input_path}/samfiles/${file_name}.fix.sam > ${input_path}/bamfiles/${file_name}.bam
+
+samtools sort -m 4G -o ${input_path}/sorted_bam/${file_name}.bam -O bam -T ${file_name} -@ 8 ${input_path}/bamfiles/${file_name}.bam

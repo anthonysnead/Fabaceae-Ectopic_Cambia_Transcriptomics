@@ -1,0 +1,23 @@
+Scripts Information
+In this folder, we provide sample scripts indicating how to run the bioinformatic pipeline used within the publication. The script implementation itself depends on your directory structure. However, our suggestion is to create a text document that outlines the absolute paths to your raw data, where you would like your trimmed data to be placed, where you would like your sam files, and any other locations. We use a similarly constructed file within our scripts to create slurm arrays that speed up the computation significantly. Additionally, we use modules loaded with “module load” or singularity images for this work so the scripts call singularity sif files that users may need to pull from docker hub. If modules are not available on the HPC or users would like more up-to-date software in the future, singularity images can be used with singularity exec followed by the sif file and the command, as demonstrated in the Orthofinder2.srun file.
+We also provide a step-by-step outline of the pipeline below.
+	1. Trim – Trim galore!
+		a. Trim.srun
+	2. Kmer estmation – Kmergenie
+		a. Kmergenie.srun
+	3. Assemble & Annotation – TransPi
+		a. Assemble.srun
+	4. Transrate - Assembly Stats
+		a. Transrate.srun
+	4. Ortholog Discovery – Orthofinder2
+		a. Orthofinder2.srun
+	5. Subset– seqtk
+		a. Seqtk.srun 
+	6. Sequence Lengths -seqkit
+		a.Seqkit.srun
+	7. Multi-alignment – Hisat2
+		a. Hisat2.srun
+	8. Fix Mate Pair Information – Picard
+		a. Picard.srun
+	9. Cluster – corset
+		a. Corset.srun

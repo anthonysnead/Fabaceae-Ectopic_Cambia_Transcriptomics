@@ -1,0 +1,34 @@
+# Here we have our hisat2 script using modules from the HPC and a multialignment (-a)
+
+#!/bin/bash
+
+#SBATCH --job-name=Hisat2
+#SBATCH --array=1-17
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=25GB
+#SBATCH --time=3:00:00
+
+module load python/intel/3.8.6
+module load hisat2/2.2.1
+
+
+# Paths is a file with paths for all the files that can be called in each instance of the array.
+
+index_path=$(sed -n ''$SLURM_ARRAY_TASK_ID'p' Paths | awk '{print$1}')
+
+index=$(sed -n ''$SLURM_ARRAY_TASK_ID'p' Paths | awk '{print$2}')
+
+input_path=$(sed -n ''$SLURM_ARRAY_TASK_ID'p' Paths | awk '{print$3}')
+
+output_path=$(sed -n ''$SLURM_ARRAY_TASK_ID'p' Hisat.paths | awk '{print$4}')
+
+file_name=$(sed -n ''$SLURM_ARRAY_TASK_ID'p' Hisat.paths | awk '{print$5}')
+
+cd ${index_path}
+
+# We use some paths multiple times and simply add the additional directories
+
+hisat2 --phred33 -a --met-file ${output_path}/stats/${file_name}.stats -p 1 \
+--un-gz ${output_path}/unmapped/${file_name}.unmapped -x ${index} \
+--fr -1 ${input_path}${file_name}_R1.fastq \
+-2 ${input_path}${file_name}_R2.fastq -S ${output_path}/samfiles/${file_name}.sam

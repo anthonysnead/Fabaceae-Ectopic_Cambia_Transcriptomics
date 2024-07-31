@@ -1,0 +1,1347 @@
+---
+title: "Ectopic_Cambium_DGE"
+author: "Anthony Snead"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, env}
+renv::init()
+```
+
+# Cross Species
+## Import Data
+
+```{r, import orthologs}
+# get ortholog information
+Orthologs <- read.csv(paste0(getwd(), "/Data/Wisteria__v__Phaseolus.tsv"), sep = "\t") %>%
+  # separate the sequences
+  mutate(Wisteria = strsplit(as.character(Wisteria), ","),
+         Phaseolus = strsplit(as.character(Phaseolus), ",")) %>%
+  # unnest
+  tidyr::unnest(Wisteria) %>%
+  #unnest
+  tidyr::unnest(Phaseolus) %>%
+  # make longer
+  tidyr::pivot_longer(., !Orthogroup, names_to = "Species", values_to = "seqname") %>%
+  # seperate out the sequence anme
+  dplyr::mutate(seqname = gsub("\\.p.*","",seqname)) %>%
+  # join with cluster nformation
+  dplyr::left_join(., read.csv(paste0(getwd(),
+                                      "/Data/Phaseolus_clusters.txt"), sep = "\t",
+                               header = FALSE) %>%
+                     dplyr::rename("seqname" = 1, "Cluster" = 2) %>%
+                     dplyr::mutate(Species = "Phaseolus") %>% 
+                     dplyr::bind_rows(.,
+                                      (read.csv(paste0(getwd(),
+                                                       "/Data/Wisteria_clusters.txt"), 
+                                                sep = "\t",
+                                                header = FALSE) %>%
+                                         dplyr::rename("seqname" = 1, "Cluster" = 2) %>%
+                                         dplyr::mutate(Species = "Wisteria")))) %>%
+  # drop na
+  tidyr::drop_na(.)
+
+```
+
+```{r,Combined Ortho Cluster Mapping}
+# create ortho mapping df by joining the orthologs with length infro
+Combined.Ortho.Cluster.Mapping <- dplyr::left_join(Orthologs,
+                                                   (dplyr::bind_rows(
+                                                     (read.csv(paste0(getwd(),
+                                                                      "/Data/Wisteria_Lengths.txt"),
+                                                               sep = "\t",
+                                                               header = TRUE) %>%
+                                                        dplyr::rename("seqname" = 1, 
+                                                                      "Length" = 2) %>%
+                                                        dplyr::mutate(seqname = gsub( " .*$", "",
+                                                                                      seqname),
+                                                                      Species = "Wisteria")),
+                                                     (read.csv(paste0(getwd(),
+                                                                      "/Data/Phaseolus_Lengths.txt"), 
+                                                               sep = "\t",
+                                                               header = TRUE) %>%
+                                                        dplyr::rename("seqname" = 1,
+                                                                      "Length" = 2) %>%
+                                                        dplyr::mutate(seqname = gsub( " .*$", "",
+                                                                                    seqname),
+                                                                    Species = "Phaseolus")))))
+```
+
+```{r, filter clusters}
+#Filter for one to one clusters
+Filtered.Ortho.Cluster <- Combined.Ortho.Cluster.Mapping %>%
+  # select
+  dplyr::select(Orthogroup, Species, Cluster) %>%
+  # distinct
+  dplyr::distinct(.) %>%
+  # group
+  dplyr::group_by(Species, Orthogroup) %>%
+  # filter for only one entry
+  dplyr::filter(dplyr::n_distinct(Cluster) == 1) %>%
+  # group
+  dplyr::group_by(Species, Cluster) %>%
+  # filter for only one entry
+  dplyr::filter(dplyr::n_distinct(Orthogroup) == 1) %>%
+  # group
+  dplyr::group_by(Orthogroup) %>%
+  # create new cluster Ids
+  dplyr::mutate(New_Cluster = paste0("Cluster_",cur_group_id()))
+```
+
+```{r, Gene Names}
+# get gene names for the species
+Ortho.Gene.Info <- read.delim(paste(getwd(),
+                                     "/Data/Phaseolus.trinotate_annotation_mappings.txt",
+                                      sep = ""),
+                                header = FALSE, col.names = c("seqname", "Name")) %>%
+  # extract names
+  dplyr::mutate(Name = gsub(".*\\^", "", Name)) %>% 
+  # add species
+  dplyr::mutate(Species = "Phaseolus") %>%
+  # bind to wisteria
+  dplyr::bind_rows(.,
+                   read.delim(paste(getwd(),
+                                    "/Data/Wisteria.trinotate_annotation_mappings.txt",
+                                    sep = ""),
+                              header = FALSE, col.names = c("seqname", "Name")) %>%
+                     # extract names
+                     dplyr::mutate(Name = gsub(".*\\^", "", Name)) %>% 
+                     # add species
+                     dplyr::mutate(Species = "Wisteria")) %>%
+  # rename
+  dplyr::rename("Gene_Id" = "Name") %>%
+  # join to otho mapping
+  dplyr::left_join(., (Combined.Ortho.Cluster.Mapping %>%
+                         # only columns we need
+                         dplyr::select(seqname, Species, Length))) %>%
+  # join to ortholog infor
+  dplyr::left_join(., (Orthologs %>%
+                         dplyr::select(!Orthogroup))) %>%
+  # drop na
+  tidyr::drop_na(.) %>%
+  # join to filtered clusters
+  dplyr::left_join(., (Filtered.Ortho.Cluster %>%
+                         dplyr::select(-Orthogroup))) %>%
+  # drop na
+  tidyr::drop_na(.) %>%
+  # join too GO terms
+  dplyr::left_join(., (dplyr::bind_rows((read.delim(paste(getwd(),
+                                                          "/Data/Phaseolus.GO.terms.txt",
+                                                          sep = ""),
+                                                    header = FALSE, 
+                                                    col.names = c("seqname", "GO")) %>%
+                                           dplyr::mutate(Species = "Phaseolus")),
+                                        (read.delim(paste(getwd(),
+                                                          "/Data/Wisteria.GO.terms.txt",
+                                                          sep = ""),
+                                                    header = FALSE, 
+                                                    col.names = c("seqname", "GO")) %>%
+                                           dplyr::mutate(Species = "Wisteria"))))) %>%
+  # get what we need
+  dplyr::select(New_Cluster, Species, Gene_Id, GO, Length) %>%
+  # group
+  dplyr::group_by(New_Cluster) %>%
+  # get median length
+  dplyr::mutate(Median_Length = median(Length)) %>%
+  # filter for max length
+  dplyr::filter(Length == max(Length)) %>%
+  # drop species
+  dplyr::select(-Species) %>%
+  # get distinct
+  dplyr::distinct(.)
+  
+
+```
+
+We import the date into a count matrix and sample information matrix. We filter the count matrix and convert to DGEList.
+```{r, Import Data}
+# read in count matrix
+Ortho.Filtered.Count.Matrix <- read.csv(paste0(getwd(),
+                                            "/Data/Phaseolus_counts.txt"), sep = "\t") %>%
+  # rename cluster
+  dplyr::rename("Cluster" = 1) %>%
+  # make rownames
+  tibble::column_to_rownames(var = "Cluster") %>%
+  # filter for cpm more than 0.5 for at least 3 samples
+  dplyr::filter(rowSums(edgeR::cpm(.) > 0.5) >=2) %>%
+  # make rowname into var for joining
+  tibble::rownames_to_column(var = "Cluster") %>%
+  # pivot longer
+  tidyr::pivot_longer(., !Cluster, names_to = "Sample", values_to = "Count") %>%
+  # add species column
+  dplyr::mutate(Species = "Phaseolus") %>%
+  # bind with wisteria count data
+  dplyr::bind_rows(., read.csv(paste0(getwd(),
+                                      "/Data/Wisteria_counts.txt"), sep = "\t") %>%
+                     # rename cluster
+                     dplyr::rename("Cluster" = 1) %>%
+                     # make cluster a rowname
+                     tibble::column_to_rownames(var = "Cluster") %>%
+                     # filter for cpm more than 0.5 for at least 5 samples
+                     dplyr::filter(rowSums(edgeR::cpm(.) > 0.5) >= 2) %>%
+                     # make cluster column
+                     tibble::rownames_to_column(var = "Cluster") %>%
+                     # pivote longer
+                     tidyr::pivot_longer(., !Cluster, 
+                                         names_to = "Sample", values_to = "Count") %>%
+                     # add species
+                     dplyr::mutate(Species = "Wisteria")) %>%
+  # join with filtered orhto infor
+  dplyr::left_join(., (Filtered.Ortho.Cluster %>%
+                         # get what we need
+                         dplyr::select(Species, Cluster, New_Cluster) %>%
+                         # distinct
+                         dplyr::distinct(.))) %>%
+  # drop na
+  tidyr::drop_na(.) %>%
+  # select what we need
+  dplyr::select(New_Cluster, Sample, Count) %>%
+  # make wide
+  tidyr::pivot_wider(., id_cols = "New_Cluster", 
+                     names_from = "Sample", values_from = "Count") %>%
+  # drop na
+  tidyr::drop_na(.) %>%
+  # make column into rowname
+  tibble::column_to_rownames(., var = "New_Cluster") %>%
+  # order our columns
+  dplyr::select(order(colnames(.))) %>%
+  # as matrix
+  as.matrix(.)
+  
+# sample info
+Ortho.Sample.Info <- data.frame(Sample = colnames(Ortho.Filtered.Count.Matrix)) %>%
+  # get treatment info
+  dplyr::mutate(Species = dplyr::if_else(grepl("P", Sample, fixed = TRUE),
+                                         "Phaseolus", "Wisteria"),
+                Cambium = dplyr::if_else(grepl("E", Sample, fixed = TRUE),
+                                         "Ectopic", "Typical")) %>%
+  # make into one column 
+  tidyr::unite(col = "Group", Species:Cambium, sep = ".", remove = FALSE) %>%
+  # convert to factor
+  dplyr::mutate_all(factor)
+
+# Create a DGEList with normalized data
+Ortho.DGE.Data <- edgeR::DGEList(counts = Ortho.Filtered.Count.Matrix,
+                                  group = as.factor(colnames(Ortho.Filtered.Count.Matrix))) %>%
+  # Calculate the normalization factors per sample
+  edgeR::calcNormFactors(.)
+```
+
+## Testing Genes
+
+We first transform the count data into an assay blind to the experimental design before checking if any samples or genes have too many missing values with WGCNA. The allOK field is TRUE so we retain all samples and genes.
+
+```{r, WGCNA Testing Genes}
+# Setup DESeq data from count matrix.
+Ortho.Transformed.Matrix <- DESeq2::DESeqDataSetFromMatrix(
+  countData = Ortho.Filtered.Count.Matrix,
+  colData = Ortho.Sample.Info,
+  design = ~ Group) %>%
+  # Run Transformation blind to the experimental design.
+  DESeq2::varianceStabilizingTransformation(., blind = TRUE) %>%
+  # Extract the transformed data as a matrix.
+  SummarizedExperiment::assay(.)
+
+# Here we check for genes or samples with too many missing values. All samples and genes have passed.
+Ortho.GSG <- WGCNA::goodSamplesGenes(t(Ortho.Transformed.Matrix), verbose = 3)
+```
+
+## Cluster
+
+We cluster with hierarchical clustering to evaluate if there are any potential outlier samples or unexpected separation.
+```{r, cluster tree}
+# Here we evaluate the relationship between samples
+Ortho.Sample.Tree <- hclust(dist(t(Ortho.Transformed.Matrix)), method = "average")
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+
+# Here we plot the relationship tree.
+plot(Ortho.Sample.Tree, main = "Sample clustering", sub="", xlab="", cex.lab = 1.5, cex.axis = 1.5, cex.main = 2)
+
+```
+
+## Distribution
+
+We log transform the count data and plot the density to evaluate the potential distribution of the data.
+```{r}
+# get log counts  
+Ortho.log.counts <- edgeR::cpm(Ortho.Filtered.Count.Matrix, log = TRUE, prior.count = 1)
+
+# plot density
+Ortho.Histogram <- ggplot2::ggplot(data = data.frame(rowMeans(Ortho.log.counts)),
+                             ggplot2::aes(x = rowMeans.Ortho.log.counts.)) +
+  ggplot2::geom_histogram(fill = "grey") +
+  ggplot2::theme_classic() +
+  ggplot2::labs(y = "Density", x = "Filtered Read Counts (logCPM)",
+                title = "Distribution of Normalized Filtered Read Counts")
+```
+
+## MDS Plots
+
+Here we have MDS plots for dimension 1-4 with the top 10K, 1K, and 500 genes to explore the potential clustering in our data.
+
+### MDS 10,000
+
+```{r, MDS 10000}
+# create mds plot in ggplot
+Ortho.MDS.All.1.2 <- data.frame(x = (limma::plotMDS(Ortho.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$x,
+                                      y = (limma::plotMDS(Ortho.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$y,
+                                      Sample = colnames(limma::plotMDS(Ortho.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(1,2))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Ortho.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Species, label = Species)) +
+  # add points
+  geom_point(ggplot2::aes(color = Species, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 1 & 2: All Genes",
+        x = "MDS Axis 1",
+        y = "MDS Axis 2") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Ortho.MDS.All.2.3 <- data.frame(x = (limma::plotMDS(Ortho.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$x,
+                                      y = (limma::plotMDS(Ortho.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$y,
+                                      Sample = colnames(limma::plotMDS(Ortho.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(2,3))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Ortho.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Species, label = Species)) +
+  # add points
+  geom_point(ggplot2::aes(color = Species, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 2 & 3: All Genes",
+        x = "MDS Axis 2",
+        y = "MDS Axis 3") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Ortho.MDS.All.3.4 <- data.frame(x = (limma::plotMDS(Ortho.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$x,
+                                      y = (limma::plotMDS(Ortho.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$y,
+                                      Sample = colnames(limma::plotMDS(Ortho.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(3,4))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Ortho.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Species, label = Species)) +
+  # add points
+  geom_point(ggplot2::aes(color = Species, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 3 & 4: All Genes",
+        x = "MDS Axis 3",
+        y = "MDS Axis 4") +
+  # change theme
+  ggplot2::theme_classic()
+```
+
+### MDS 1,000
+
+```{r, MDS 1000}
+Ortho.MDS.1000.1.2 <- data.frame(x = (limma::plotMDS(Ortho.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$x,
+                                      y = (limma::plotMDS(Ortho.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$y,
+                                      Sample = colnames(limma::plotMDS(Ortho.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(1,2))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Ortho.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Species, label = Species)) +
+  # add points
+  geom_point(ggplot2::aes(color = Species, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 1 & 2: 1000 Genes",
+        x = "MDS Axis 1",
+        y = "MDS Axis 2") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Ortho.MDS.1000.2.3 <- data.frame(x = (limma::plotMDS(Ortho.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$x,
+                                      y = (limma::plotMDS(Ortho.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$y,
+                                      Sample = colnames(limma::plotMDS(Ortho.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(2,3))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Ortho.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Species, label = Species)) +
+  # add points
+  geom_point(ggplot2::aes(color = Species, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 2 & 3: 1000 Genes",
+        x = "MDS Axis 2",
+        y = "MDS Axis 3") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Ortho.MDS.1000.3.4 <- data.frame(x = (limma::plotMDS(Ortho.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$x,
+                                      y = (limma::plotMDS(Ortho.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$y,
+                                      Sample = colnames(limma::plotMDS(Ortho.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(3,4))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Ortho.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Species, label = Species)) +
+  # add points
+  geom_point(ggplot2::aes(color = Species, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 3 & 4: 1000 Genes",
+        x = "MDS Axis 3",
+        y = "MDS Axis 4") +
+  # change theme
+  ggplot2::theme_classic()
+```
+
+### MDS 500
+
+```{r, MDS 500}
+Ortho.MDS.500.1.2 <- data.frame(x = (limma::plotMDS(Ortho.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$x,
+                                      y = (limma::plotMDS(Ortho.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$y,
+                                      Sample = colnames(limma::plotMDS(Ortho.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(1,2))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Ortho.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Species, label = Species)) +
+  # add points
+  geom_point(ggplot2::aes(color = Species, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 1 & 2: 500 Genes",
+        x = "MDS Axis 1",
+        y = "MDS Axis 2") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Ortho.MDS.500.2.3 <- data.frame(x = (limma::plotMDS(Ortho.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$x,
+                                      y = (limma::plotMDS(Ortho.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$y,
+                                      Sample = colnames(limma::plotMDS(Ortho.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(2,3))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Ortho.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Species, label = Species)) +
+  # add points
+  geom_point(ggplot2::aes(color = Species, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 2 & 3: 500 Genes",
+        x = "MDS Axis 2",
+        y = "MDS Axis 3") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Ortho.MDS.500.3.4 <- data.frame(x = (limma::plotMDS(Ortho.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$x,
+                                      y = (limma::plotMDS(Ortho.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$y,
+                                      Sample = colnames(limma::plotMDS(Ortho.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(3,4))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Ortho.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Species, label = Species)) +
+  # add points
+  geom_point(ggplot2::aes(color = Species, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 3 & 4: 500 Genes",
+        x = "MDS Axis 3",
+        y = "MDS Axis 4") +
+  # change theme
+  ggplot2::theme_classic()
+```
+
+
+## Differential Gene Expression
+
+### Running Limma
+```{r, DGE Design Matrix}
+# make design matrix
+Ortho.Design.Matrix <- model.matrix(~0 + Group, data = Ortho.Sample.Info)
+```
+
+```{r, DGE voom}
+# run voom
+Ortho.DGE.Voom <- limma::voom(Ortho.DGE.Data, Ortho.Design.Matrix, plot = TRUE)
+```
+
+
+```{r, DGE Fit Voom}
+# fit
+Ortho.DGE.Voom.fit <- limma::lmFit(Ortho.DGE.Voom, Ortho.Design.Matrix)
+```
+
+```{r, DGE Make Limma Contrasts}
+# make contrasts
+Ortho.Limma.Contrasts <- limma::makeContrasts(
+  # average effect of species regardless of cambium
+  Species = ((GroupWisteria.Typical + GroupWisteria.Ectopic)/2) - GroupPhaseolus.Typical,
+  # average effect of cambium regardless of species
+  Cambium = GroupWisteria.Ectopic - ((GroupPhaseolus.Typical + GroupWisteria.Typical)/2),
+  # effect of cambium in Wisteria
+  Wisteria.Cambium = GroupWisteria.Ectopic - GroupWisteria.Typical,
+  # effect of species in typical Cambium
+  Between.Typical = GroupWisteria.Typical - GroupPhaseolus.Typical,
+  levels = Ortho.Design.Matrix)
+```
+
+```{r, DGE Fit Contrasts}
+# fit the contrasts
+Ortho.DGE.Voom.Constrasts.fit <- limma::contrasts.fit(Ortho.DGE.Voom.fit, Ortho.Limma.Contrasts)
+
+# use eBayes
+Ortho.DGE.Voom.Constrasts.fit <- limma::eBayes(Ortho.DGE.Voom.Constrasts.fit)
+```
+
+```{r, DGE Voom Table}
+# get table of significantly differentially expressed genes for all the contrasts
+Ortho.DGE.Voom.Results <- lapply(X = list(
+  # difference between species
+  "Species",
+  # difference between cambium
+  "Cambium",
+  # difference between cambium inside wisteria
+  "Wisteria.Cambium",
+  # differences between species with typical cambium
+  "Between.Typical"),
+  FUN = function(x){
+    limma::topTable(Ortho.DGE.Voom.Constrasts.fit, coef = x, adjust.method = "BH",
+                    p.value = 0.05, 
+                    number = Inf) %>%
+      dplyr::mutate(Contrast = x) %>%
+      # get gene ID
+      tibble::rownames_to_column(., var = "New_Cluster")}) %>%
+  # bind the list of results together
+  dplyr::bind_rows(.)
+```
+
+
+```{r, Ortho genes venndiagrams}
+# plot venndiagram
+Ortho.VD.Genes <-ggVennDiagram::ggVennDiagram(x = list("Wisteria vs Phaseolus" =
+                                                          split(Ortho.DGE.Voom.Results,
+                                                    Ortho.DGE.Voom.Results$Contrast)$Species$New_Cluster,
+                                                    "Ectopic vs Typical" =
+                                                          split(Ortho.DGE.Voom.Results,
+                                                    Ortho.DGE.Voom.Results$Contrast)$Cambium$New_Cluster,
+                                                    "Wisteria vs Phaseolus (Typical)" =
+                                                          split(Ortho.DGE.Voom.Results,
+                                                    Ortho.DGE.Voom.Results$Contrast)$Between.Typical$New_Cluster),
+                                               text_color = "black",
+                                               set_name_color = "black",
+
+) +
+  scale_fill_distiller(palette = "RdBu") +
+  labs(title = "Ortho DEG")+ 
+  scale_x_continuous(expand = expansion(mult = .2))
+
+```
+
+## GO Enrichment
+
+### Differentially Expressed Genes
+
+```{r, Background Genes}
+# get GO mappings
+Ortho.GO.Mapping <- Ortho.Gene.Info %>%
+  dplyr::ungroup(.) %>%
+  dplyr::select(New_Cluster, GO) %>%
+  # split terms
+  dplyr::mutate(GO = strsplit(as.character(GO), ",")) %>%
+  # unnest
+  tidyr::unnest(GO) %>%
+  dplyr::distinct(.) %>%
+  as.data.frame(.)
+
+# get list of DGE for GO per contrast
+Ortho.DGE.List <- Ortho.DGE.Voom.Results %>%
+  # split by contrast
+  dplyr::group_split(Contrast) %>%
+  # set the names of the list elements
+  purrr::set_names(Ortho.DGE.Voom.Results$Contrast %>%
+                     unique(.) %>% 
+                     sort(.)) %>%
+  # apply over the list 
+  lapply(X = ., Genes = (data.frame(
+    New_Cluster = rownames(Ortho.Filtered.Count.Matrix)) %>% # create gene df
+      # join with the length
+      dplyr::left_join(., y = (Ortho.Gene.Info %>%
+                                 dplyr::select(New_Cluster,
+                                               Median_Length) %>%
+                                 distinct(.)))),
+    FUN = function(X, Genes){
+      Table <- X %>%
+      # get what we need
+      dplyr::select(New_Cluster, logFC) %>%
+      # rename
+      dplyr::rename("DEG" = logFC) %>%
+      # join
+      dplyr::left_join(Genes, .) %>%
+      # convert to binary significance
+      dplyr::mutate(DEG = dplyr::if_else(is.na(DEG), 0, 1))
+    
+    # create pwf for goseq
+    PWF <- goseq::nullp(DEgenes = setNames(Table$DEG, Table$New_Cluster),
+                        bias.data = setNames(as.numeric(Table$Median_Length), 
+                                             Table$New_Cluster)) %>%
+      tidyr::drop_na(.)
+    return(PWF)
+  })
+
+```
+
+```{r, Ortho Go extract}
+Ortho.GO.Info <- apply((Ortho.GO.Mapping %>%
+              dplyr::filter(!is.na(GO))), 1, function(x){
+  mget(unlist(strsplit(as.vector(x[2]), ",")), GOTERM, ifnotfound=NA)
+}) %>%
+  purrr::flatten(.) %>%
+  lapply(., function(x){
+    names <- slotNames(x)
+   
+   info <- lapply(names, function(names){ slot(x, names)})
+   
+   DF <- data.frame(GO = as.character(paste(info[1])),
+              Info = as.character(paste("Term: ", info[2], "; ",
+                           "Ontology: ",info[3],"; ",
+                           "Definition: ", info[4],sep = "")))
+   
+   return(DF)
+    
+  }) %>%
+  dplyr::bind_rows(.)
+```
+
+```{r, DGE Table with Info}
+# make table with all the extra information
+Ortho.DGE.Voom.Results.Info.Table <- Ortho.DGE.Voom.Results %>%
+  # join with names
+  dplyr::left_join(., (Ortho.Gene.Info %>%
+                         dplyr::select(New_Cluster, Gene_Id)), multiple  = "all") %>%
+  dplyr::left_join(., Ortho.GO.Mapping) %>%
+  dplyr::left_join(., Ortho.GO.Info) %>%
+  dplyr::rename("Annotation" = "Gene_Id") %>%
+  distinct(.)
+```
+
+```{r, GO Terms for DEG}
+# run goseq
+Ortho.GO.DGE <- lapply(X = Ortho.DGE.List, Mapping = Ortho.GO.Mapping,
+                        FUN = function(X, Mapping){
+                          
+                          # run goseq
+                          Table <- goseq::goseq(pwf = X, gene2cat = Mapping,
+                                                use_genes_without_cat=TRUE,
+                                                method="Hypergeometric") %>%
+                            # correct for multiple testing
+                            dplyr::mutate(
+                              over_represented_pvalue = p.adjust(over_represented_pvalue,
+                                                                             method="BH"),
+                              under_represented_pvalue = p.adjust(under_represented_pvalue,
+                                                                  method="BH"))
+  }) %>%
+  # bind and add contrast
+  dplyr::bind_rows(., .id = "Contrast") %>%
+  # filter for significance
+  dplyr::filter(over_represented_pvalue < 0.05 | under_represented_pvalue < 0.05)
+
+```
+
+
+
+
+# Wisteria
+## Import Data
+
+```{r,Cluster Information}
+# get wisteria gene info
+Wisteria.Gene.Info <-  read.csv(paste0(getwd(),
+                                      "/Data/Wisteria_clusters.txt"), 
+                               sep = "\t",
+                               header = FALSE) %>%
+  # rename
+  dplyr::rename("seqname" = 1, "Cluster" = 2) %>%
+  # join with lengths
+  dplyr::left_join(., (read.csv(paste0(getwd(),
+                                       "/Data/Wisteria_Lengths.txt"), 
+                                sep = "\t",
+                                header = TRUE) %>%
+                         # rename sequences
+                         dplyr::rename("seqname" = 1, "Length" = 2) %>%
+                         # pull out sequence names
+                         dplyr::mutate(seqname = gsub( " .*$", "", seqname)))) %>%
+  # join with annnotations
+  dplyr::left_join(., (read.delim(paste(getwd(),
+                                        "/Data/Wisteria.trinotate_annotation_mappings.txt",
+                                        sep = ""),
+                                  header = FALSE, col.names = c("seqname", "Name")) %>%
+                         # extract names
+                         dplyr::mutate(Name = gsub(".*\\^", "", Name)))) %>%
+  # join with GO terms
+  dplyr::left_join(., (read.delim(paste(getwd(),
+                                        "/Data/Wisteria.GO.terms.txt",
+                                        sep = ""),
+                                  header = FALSE, 
+                                  col.names = c("seqname", "GO")))) %>%
+  # group by cluster
+  dplyr::group_by(Cluster) %>%
+  # get median length
+  dplyr::mutate(Median_Length = median(Length)) %>%
+  # filter for max
+  dplyr::filter(Length == max(Length)) %>%
+  #ungroup
+  dplyr::ungroup(.) %>%
+  # get distinct
+  dplyr::distinct(.) %>%
+  # join with orthologs
+  dplyr::left_join(., (Orthologs %>%
+                         dplyr::filter(Species == "Wisteria") %>%
+                         dplyr::select(!Species))) %>%
+  # distinct
+  dplyr::distinct(.) %>%
+  # join with filtered orthologs
+  dplyr::left_join(., (Filtered.Ortho.Cluster %>%
+                         dplyr::filter(Species == "Wisteria") %>%
+                         dplyr::select(-Species))) %>%
+  # select waht we need
+  dplyr::select(Orthogroup, New_Cluster, Cluster, Name, GO, Length, Median_Length) %>%
+  # distinct
+  dplyr::distinct(.) %>%
+  # group by cluster
+  dplyr::group_by(Cluster) %>%
+  # mutate
+  dplyr::mutate(Name = `Name`[Length == max(Length)],
+                GO = `GO`[Length == max(Length)]) %>%
+  # distinct
+  dplyr::distinct(.)
+```
+
+We import the date into a count matrix and sample information matrix. We filter the count matrix and convert to DGEList.
+```{r, Import Data}
+# read in count matrix
+Wisteria.Filtered.Count.Matrix <- read.csv(paste0(getwd(),
+                                                  "/Data/Wisteria_counts.txt"), sep = "\t") %>%
+  # rename
+  dplyr::rename("Cluster" = 1) %>%
+  # make ronwames
+  tibble::column_to_rownames(var = "Cluster") %>%
+  # filter for cpm more than 0.5 for at least 2 samples
+  dplyr::filter(rowSums(edgeR::cpm(.) > 0.5) >= 2) %>%
+  # order the columns 
+  dplyr::select(order(colnames(.))) %>%
+  # convert to matrix
+  as.matrix(.)
+
+# sample info
+Wisteria.Sample.Info <- data.frame(Sample = colnames(Wisteria.Filtered.Count.Matrix)) %>%
+  # get treatment info
+  dplyr::mutate(Cambium = dplyr::if_else(grepl("E", Sample, fixed = TRUE),
+                                         "Ectopic", "Typical")) %>%
+  # convert to factor
+  dplyr::mutate_all(factor)
+
+# Create a DGEList with normalized data
+Wisteria.DGE.Data <- edgeR::DGEList(counts = Wisteria.Filtered.Count.Matrix,
+                                  group = as.factor(colnames(Wisteria.Filtered.Count.Matrix))) %>%
+  # Calculate the normalization factors per sample
+  edgeR::calcNormFactors(.)
+```
+
+## Testing Genes
+
+We first transform the count data into an assay blind to the experimental design before checking if any samples or genes have too many missing values with WGCNA. The allOK field is TRUE so we retain all samples and genes.
+
+```{r, WGCNA Testing Genes}
+# Setup DESeq data from count matrix.
+Wisteria.Transformed.Matrix <- DESeq2::DESeqDataSetFromMatrix(
+  countData = Wisteria.Filtered.Count.Matrix,
+  colData = Wisteria.Sample.Info, design = ~ Cambium) %>%
+  # Run Transformation blind to the experimental design.
+  DESeq2::varianceStabilizingTransformation(., blind = TRUE) %>%
+  # Extract the transformed data as a matrix.
+  SummarizedExperiment::assay(.)
+
+# Here we check for genes or samples with too many missing values. All samples and genes have passed.
+Wisteria.GSG <- WGCNA::goodSamplesGenes(t(Wisteria.Transformed.Matrix), verbose = 3)
+```
+
+## Cluster
+
+We cluster with hierarchical clustering to evaluate if there are any potential outlier samples or unexpected separation.
+```{r, cluster tree}
+# Here we evaluate the relationship between samples
+Wisteria.Sample.Tree <- hclust(dist(t(Wisteria.Transformed.Matrix)), method = "average")
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+
+# Here we plot the relationship tree.
+plot(Wisteria.Sample.Tree, main = "Sample clustering", sub="", xlab="", cex.lab = 1.5, cex.axis = 1.5, cex.main = 2)
+
+```
+
+## Distribution
+
+We log transform the count data and plot the density to evaluate the potential distribution of the data.
+```{r}
+# get log counts  
+Wisteria.log.counts <- edgeR::cpm(Wisteria.DGE.Data, log = TRUE, prior.count = 1)
+
+# plot density
+Wisteria.Histogram <- ggplot2::ggplot(data = data.frame(rowMeans(Wisteria.log.counts)),
+                             ggplot2::aes(x = rowMeans.Wisteria.log.counts.)) +
+  ggplot2::geom_histogram(fill = "grey") +
+  ggplot2::theme_classic() +
+  ggplot2::labs(y = "Density", x = "Filtered Read Counts (logCPM)",
+                title = "Distribution of Normalized Filtered Read Counts")
+```
+
+## MDS Plots
+
+Here we have MDS plots for dimension 1-4 with the top 10K, 1K, and 500 genes to explore the potential clustering in our data.
+
+### MDS 10,000
+
+```{r, MDS 10000}
+# create mds plot in ggplot
+Wisteria.MDS.All.1.2 <- data.frame(x = (limma::plotMDS(Wisteria.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$x,
+                                      y = (limma::plotMDS(Wisteria.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$y,
+                                      Sample = colnames(limma::plotMDS(Wisteria.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(1,2))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Wisteria.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Cambium, label = Cambium)) +
+  # add points
+  geom_point(ggplot2::aes(color = Cambium, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 1 & 2: All Genes",
+        x = "MDS Axis 1",
+        y = "MDS Axis 2") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Wisteria.MDS.All.2.3 <- data.frame(x = (limma::plotMDS(Wisteria.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$x,
+                                      y = (limma::plotMDS(Wisteria.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$y,
+                                      Sample = colnames(limma::plotMDS(Wisteria.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(2,3))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Wisteria.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Cambium, label = Cambium)) +
+  # add points
+  geom_point(ggplot2::aes(color = Cambium, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 2 & 3: All Genes",
+        x = "MDS Axis 2",
+        y = "MDS Axis 3") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Wisteria.MDS.All.3.4 <- data.frame(x = (limma::plotMDS(Wisteria.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$x,
+                                      y = (limma::plotMDS(Wisteria.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$y,
+                                      Sample = colnames(limma::plotMDS(Wisteria.DGE.Data, top = Inf,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(3,4))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Wisteria.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Cambium, label = Cambium)) +
+  # add points
+  geom_point(ggplot2::aes(color = Cambium, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 3 & 4: All Genes",
+        x = "MDS Axis 3",
+        y = "MDS Axis 4") +
+  # change theme
+  ggplot2::theme_classic()
+```
+
+### MDS 1,000
+
+```{r, MDS 1000}
+Wisteria.MDS.1000.1.2 <- data.frame(x = (limma::plotMDS(Wisteria.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$x,
+                                      y = (limma::plotMDS(Wisteria.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$y,
+                                      Sample = colnames(limma::plotMDS(Wisteria.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(1,2))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Wisteria.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Cambium, label = Cambium)) +
+  # add points
+  geom_point(ggplot2::aes(color = Cambium, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 1 & 2: 1000 Genes",
+        x = "MDS Axis 1",
+        y = "MDS Axis 2") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Wisteria.MDS.1000.2.3 <- data.frame(x = (limma::plotMDS(Wisteria.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$x,
+                                      y = (limma::plotMDS(Wisteria.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$y,
+                                      Sample = colnames(limma::plotMDS(Wisteria.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(2,3))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Wisteria.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Cambium, label = Cambium)) +
+  # add points
+  geom_point(ggplot2::aes(color = Cambium, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 2 & 3: 1000 Genes",
+        x = "MDS Axis 2",
+        y = "MDS Axis 3") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Wisteria.MDS.1000.3.4 <- data.frame(x = (limma::plotMDS(Wisteria.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$x,
+                                      y = (limma::plotMDS(Wisteria.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$y,
+                                      Sample = colnames(limma::plotMDS(Wisteria.DGE.Data, top = 1000,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(3,4))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Wisteria.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Cambium, label = Cambium)) +
+  # add points
+  geom_point(ggplot2::aes(color = Cambium, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 3 & 4: 1000 Genes",
+        x = "MDS Axis 3",
+        y = "MDS Axis 4") +
+  # change theme
+  ggplot2::theme_classic()
+```
+
+### MDS 500
+
+```{r, MDS 500}
+Wisteria.MDS.500.1.2 <- data.frame(x = (limma::plotMDS(Wisteria.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$x,
+                                      y = (limma::plotMDS(Wisteria.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(1,2)))$y,
+                                      Sample = colnames(limma::plotMDS(Wisteria.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(1,2))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Wisteria.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Cambium, label = Cambium)) +
+  # add points
+  geom_point(ggplot2::aes(color = Cambium, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 1 & 2: 500 Genes",
+        x = "MDS Axis 1",
+        y = "MDS Axis 2") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Wisteria.MDS.500.2.3 <- data.frame(x = (limma::plotMDS(Wisteria.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$x,
+                                      y = (limma::plotMDS(Wisteria.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(2,3)))$y,
+                                      Sample = colnames(limma::plotMDS(Wisteria.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(2,3))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Wisteria.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Cambium, label = Cambium)) +
+  # add points
+  geom_point(ggplot2::aes(color = Cambium, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 2 & 3: 500 Genes",
+        x = "MDS Axis 2",
+        y = "MDS Axis 3") +
+  # change theme
+  ggplot2::theme_classic()
+
+# create mds plot in ggplot
+Wisteria.MDS.500.3.4 <- data.frame(x = (limma::plotMDS(Wisteria.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$x,
+                                      y = (limma::plotMDS(Wisteria.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", dim.plot = c(3,4)))$y,
+                                      Sample = colnames(limma::plotMDS(Wisteria.DGE.Data, top = 500,
+                                                     gene.selection = "pairwise", 
+                                                     dim.plot = c(3,4))$distance.matrix.squared)) %>%
+  # join to treatment information for plotting
+  dplyr::left_join(., Wisteria.Sample.Info) %>%
+  # plot
+  ggplot2::ggplot(., ggplot2::aes(x = x, y = y)) +
+  # add ellipse
+  ggforce::geom_mark_ellipse(aes(fill = Cambium, label = Cambium)) +
+  # add points
+  geom_point(ggplot2::aes(color = Cambium, shape = Cambium)) +
+  # add labels
+  labs( title = "MDS Dimensions 3 & 4: 500 Genes",
+        x = "MDS Axis 3",
+        y = "MDS Axis 4") +
+  # change theme
+  ggplot2::theme_classic()
+```
+
+
+
+## Differential Gene Expression
+
+### Dream
+
+```{r, metadata}
+# make dream meta data
+Dream.Meta <- Wisteria.Sample.Info %>%
+  # mutate for treatment information
+  dplyr::mutate(Cambium = as.character(dplyr::if_else(Cambium == "Ectopic", 1, 0)),
+                Individual = dplyr::if_else( Sample == "WH3E", 
+                                             "7",
+                                             as.character( 
+                                               readr::parse_number( 
+                                                 as.character(Sample)))),
+                Population = dplyr::if_else(grepl("C", Sample,
+                                                  fixed = TRUE),
+                                            "1", "2")) %>%
+  # make rowname
+  tibble::column_to_rownames(var = "Sample") %>%
+  # maek characters
+  dplyr::mutate_all(as.character)
+```
+
+```{r, dream parameters}
+# this is used implicitly by dream() to run in parallel
+Params <- BiocParallel::SnowParam(10, "SOCK", progressbar = TRUE, exportglobals = FALSE)
+
+# formula for dream
+Dream.Form <- ~0 + Cambium + (1|Individual)
+```
+
+```{r, contrast}
+# make contrasts
+Wisteria.Dream.Constrast <- variancePartition::makeContrastsDream(Dream.Form, Dream.Meta,
+                                                                 contrasts = c(
+                                                                   Ectopic.Typical = "Cambium1 - Cambium0"))
+
+
+```
+
+
+```{r, voom dream}
+# estimate weights using linear mixed model of dream
+Wisteria.vobjDream <- variancePartition::voomWithDreamWeights(Wisteria.DGE.Data,
+                                                     Dream.Form, Dream.Meta, BPPARAM = Params)
+```
+
+```{r, dream fit}
+# Dream fit
+Wisteria.Fit <- variancePartition::dream(Wisteria.vobjDream, Dream.Form, Dream.Meta,
+                                         Wisteria.Dream.Constrast, BPPARAM = Params,
+                                         ddf = "Kenward-Roger")
+
+# ebayes
+Wisteria.Fit <- variancePartition::eBayes(Wisteria.Fit)
+```
+
+
+```{r,}
+# dream results
+Wisteria.DGE.Dream.Results<- variancePartition::topTable(Wisteria.Fit, 
+                                                         coef = "Ectopic.Typical", 
+                                                         adjust.method = "BH",
+                                                         p.value = 0.05, 
+                                                         number = Inf) %>%
+  tibble::rownames_to_column(var = "Cluster") %>%
+  # join with names
+  dplyr::left_join(., Wisteria.Gene.Info, multiple  = "all") %>%
+  # this was done after the fact to denote only wisteria clusters on to match the supplementary table in the paper
+  dplyr::mutate(New_Cluster = paste0("Cluster_W",row.names(.)),
+                New_Cluster = dplyr::if_else(New_Cluster == "Cluster_W13", "Cluster_9226", New_Cluster),
+                New_Cluster = dplyr::if_else(New_Cluster == "Cluster_W14", "Cluster_W13", New_Cluster)) %>%
+  dplyr::rename("Annotation" = "Name")
+
+```
+
+```{r, DGE GO extract}
+Wisteria.DGE.Dream.Results.Info <- apply((Wisteria.DGE.Dream.Results %>%
+              dplyr::filter(!is.na(GO))), 1, function(x){
+  mget(unlist(strsplit(as.vector(x[12]), ",")), GOTERM, ifnotfound=NA)
+}) %>%
+  purrr::flatten(.) %>%
+  lapply(., function(x){
+    names <- slotNames(x)
+   
+   info <- lapply(names, function(names){ slot(x, names)})
+   
+   DF <- data.frame(GO = as.character(paste(info[1])),
+              Info = as.character(paste("Term: ", info[2], "; ",
+                           "Ontology: ",info[3],"; ",
+                           "Definition: ", info[4],sep = "")))
+   
+   return(DF)
+    
+  }) %>%
+  dplyr::bind_rows(.) %>%
+  dplyr::left_join((Wisteria.DGE.Dream.Results %>%
+                      dplyr::select(Cluster, New_Cluster, Annotation,
+                                    logFC, P.Value,GO) %>%
+                      distinct(.) %>%
+                      dplyr::mutate(GO = strsplit(as.character(GO),",")) %>%
+                      tidyr::unnest(GO)), .)
+
+
+```
+
+## GO Enrichment
+
+```{r, Background Genes}
+# get GO mappings
+Wisteria.GO.Mapping <- read.delim(file = paste0(getwd(), "/Data/Wisteria.GO.terms.txt"), header = FALSE,
+                                col.names = c("seqname", "Terms")) %>%
+  dplyr::left_join(., (read.csv(paste0(getwd(),
+                                      "/Data/Wisteria_clusters.txt"), 
+                                sep = "\t",
+                                header = FALSE) %>%
+                         dplyr::rename("seqname" = 1,
+                                       "Cluster" = 2))) %>%
+  dplyr::select(-seqname) %>%
+  dplyr::filter(!is.na(Cluster)) %>%
+  # split terms
+  dplyr::mutate(Terms = strsplit(as.character(Terms), ",")) %>%
+  # unnest
+  tidyr::unnest(Terms) %>%
+  as.data.frame(.)
+
+# get list of DGE for GO per contrast
+Wisteria.DGE.GO.Df <- Wisteria.DGE.Dream.Results %>%
+  # select what we need
+  dplyr::select(Cluster, logFC, Median_Length) %>%
+  # rename
+  dplyr::rename("DEG" = logFC) %>%
+  dplyr::left_join((data.frame(Cluster = rownames(Wisteria.Filtered.Count.Matrix)) %>%
+                       # join with the gtf
+                       dplyr::left_join(., y = (Wisteria.Gene.Info %>%
+                                                  dplyr::select(Cluster,
+                                                                Median_Length) %>%
+                                                  distinct(.)))), .) %>%
+  # convert to binary significance
+      dplyr::mutate(DEG = dplyr::if_else(is.na(DEG), 0, 1)) %>%
+  # distinct
+  distinct(.) %>%
+  # get pwf
+  goseq::nullp(DEgenes = setNames(.$DEG, .$Cluster),
+                        bias.data = setNames(as.numeric(.$Median_Length), .$Cluster))
+
+```
+
+```{r, GO Terms for DEG}
+# run goseq
+Wisteria.GO.DGE <- goseq::goseq(pwf = Wisteria.DGE.GO.Df, 
+                                gene2cat = Wisteria.GO.Mapping, use_genes_without_cat=TRUE,
+                                method="Hypergeometric") %>%
+  # correct for multiple testing
+  dplyr::mutate(over_represented_pvalue = p.adjust(over_represented_pvalue, method="BH"),
+                under_represented_pvalue = p.adjust(under_represented_pvalue, method="BH")) %>%
+  # filter for significance
+  dplyr::filter(over_represented_pvalue < 0.05 | under_represented_pvalue < 0.05)
+
+```
+
+# Extract Sequence Names
+```{r, extractin seqnames for external use}
+# read in a table denoting the clusters
+Table <- read.table(paste0(getwd(), "/Clusters_extract.txt"), header = TRUE)
+
+# get the longest sequence for each cluster
+Selected.Clusters <- Ortho.Gene.Info %>%
+  dplyr::filter(New_Cluster %in% Table$Cluster) %>%
+  dplyr::select(New_Cluster, Gene_Id) %>%
+  dplyr::left_join(., Filtered.Ortho.Cluster) %>%
+  dplyr::left_join(., Combined.Ortho.Cluster.Mapping) %>%
+  distinct(.) %>%
+  dplyr::group_by(New_Cluster, Species) %>%
+  dplyr::filter(Length == max(Length)) %>%
+  dplyr::select(Species, New_Cluster, Gene_Id, seqname) %>%
+  split(., .$Gene_Id)
+
+# wruite one file for each cluster
+for(i in 1:length(Selected.Clusters)){
+    write.table(Selected.Clusters[[i]],paste0(getwd(),"/", names(Selected.Clusters[i]),".txt"), row.names=FALSE,
+                quote = F, 
+              sep = '\t',
+                col.names=FALSE)
+}
+
+```
+
+# Extra Figures
+```{r, extra figures}
+# venndiagram including wisteria
+Ortho.Wisteria.VD.Genes <-ggVennDiagram::ggVennDiagram(x = list("Wisteria vs Phaseolus" =
+                                                          split(Ortho.DGE.Voom.Results,
+                                                    Ortho.DGE.Voom.Results$Contrast)$Species$New_Cluster,
+                                                    "Ectopic vs Typical" =
+                                                          split(Ortho.DGE.Voom.Results,
+                                                    Ortho.DGE.Voom.Results$Contrast)$Cambium$New_Cluster,
+                                                    "Wisteria vs Phaseolus (Typical)" =
+                                                          split(Ortho.DGE.Voom.Results,
+                                                    Ortho.DGE.Voom.Results$Contrast)$Between.Typical$New_Cluster,
+                                                    "Wisteria: Ectopic vs Typical" =
+                                                
+                                                      (Wisteria.DGE.Dream.Results %>%
+                                                         dplyr::filter(!is.na(New_Cluster)))$New_Cluster),
+                                               text_color = "black",
+                                               set_name_color = "black") +
+  scale_fill_distiller(palette = "RdBu") +
+  labs(title = "Ortho DEG")+ 
+  scale_x_continuous(expand = expansion(mult = .2))
+
+```
+
+# plots for manuscript
+```{r - DE Volcano Plot, fig.height = 7, fig.width = 7, fig.align = "center" }
+# all unique is just a joined table of all the results combined and made wide.
+ggplot((All_Unique %>%
+                          dplyr::mutate(Gene_Id = dplyr::case_when(
+                            grepl("NAC", Gene_Id) ~ "NAC",
+                            grepl("WRKY", Gene_Id) ~ "WRKY",
+                            grepl("AUX_IAA", Gene_Id) ~ "Auxin-Related",
+                            grepl("Auxin", Gene_Id) ~ "Auxin-Related",
+                            grepl("AUX12", Gene_Id) ~ "Auxin-Related",
+                            grepl("Arf", Gene_Id) ~ "Auxin-Related",
+                            grepl("PIN", Gene_Id) ~ "Auxin-Related",
+                            grepl("TIR", Gene_Id) ~ "Auxin-Related",
+                            grepl("AP2", Gene_Id) ~ "Ethylene-Related",
+                            grepl("EIN3_DNA-bd", Gene_Id) ~ "Ethylene-Related",
+                            grepl("GASA", Gene_Id) ~ "Gibberelin-Related",
+                            grepl("Cyclin", Gene_Id) ~ "Epigenetics-Related",
+                            grepl("DME_ARATH", Gene_Id) ~ "Epigenetics-Related",
+                            grepl("DNA_methylase", Gene_Id) ~ "Epigenetics-Related",
+                            grepl("Histone", Gene_Id) ~ "Epigenetics-Related",
+                            grepl("JMJ20_ARATH", Gene_Id) ~ "Epigenetics-Related",
+                            grepl("JmjN", Gene_Id) ~ "Epigenetics-Related",
+                            grepl("Methyltr", Gene_Id) ~ "Epigenetics-Related",
+                            grepl("Methyltransf", Gene_Id) ~ "Epigenetics-Related",
+                            grepl("EXLB1", Gene_Id) ~ "Expansin-Like B1",
+                            grepl("HD-ZIP_N", Gene_Id) ~ "HD-ZIP Genes",
+                            grepl("KNOX", Gene_Id) ~ "KNOX Genes",
+                            grepl("KNAT", Gene_Id) ~ "KNOX Genes",
+                            grepl("STM", Gene_Id) ~ "KNOX Genes",
+                            grepl("CLE12", Gene_Id) ~ "Clavata3/ESR-Related 12",),
+                            Gene_Id = dplyr::if_else(Gene_Id %in% c("NAC",
+                                                                    "WRKY",
+                                                                    "Auxin-Related",
+                                                                    "Expansion-Like B1",
+                                                                    "Ethylene-Related",
+                                                                    "Adipocyte Protein 2",
+                                                                    "Epigenetics-Related",
+                                                                    "HD-ZIP Genes",
+                                                                    "KNOX Genes",
+                                                                    "Gibberelin-Related",
+                                                                    "Clavata3/ESR-Related 12"), Gene_Id, NA),
+                            Order = rank(Gene_Id,
+                                         na.last = FALSE),
+        Contrast = dplyr::case_when(
+          Contrast == "Between.Typical" ~ "Wisteria Typical Cambium vs. Phaseolus Typical Cambium",
+          Contrast == "Cambium" ~ "Ectopic Cambium vs. Typical Cambium (Both Species)",
+          Contrast == "Species" ~ "Wisteria vs. Phaseolus",
+          Contrast == "Wisteria (Dream): Ectopic vs Typical" ~ "Ectopic Cambium vs. Typical Cambium (Wisteria Only Analysis)"
+        ))) %>%
+         dplyr::arrange(Order)) +
+    aes(y = -log10(P.Value), x = logFC, fill = Gene_Id) +
+  geom_point(size = 2, colour="black", pch=21) +
+  ggsci::scale_color_npg(breaks = ~ .x[!is.na(.x)],
+                       na.value="black",) +
+  scale_fill_discrete(breaks = ~ .x[!is.na(.x)],
+                      name = "Annotation") +
+  geom_vline(xintercept = 0, linetype="longdash", colour="grey", size=1) +
+  facet_wrap(~ Contrast) +
+  labs( title = "Differentially Expressed Clusters Across Contrasts") +
+  xlab("Log Fold Change") +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+```
